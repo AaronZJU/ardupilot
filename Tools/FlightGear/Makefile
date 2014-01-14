@@ -17,7 +17,7 @@ CFLAGS		:=	-std=c99 -D_XOPEN_SOURCE=600
 LDFLAGS     	:=	-lpthread -lm
 endif
 
-CFLAGS		+=	-I./GCS_MAVLink/include
+CFLAGS		+=	-I../../libraries/GCS_MAVLink/include/mavlink/v1.0/
 SRCS		:=	FGShim.c
 
 FGShim:		$(SRCS)

@@ -59,24 +59,44 @@
 	<type>double</type>
 	<node>/position/altitude-ft</node>
       </chunk> 
+      
+      <!-- #### orientation #### -->
       <chunk>
 	<name>heading</name>
 	<type>double</type>
 	<node>/orientation/heading-deg</node>
       </chunk>
+      
+      <chunk>
+          <name>roll</name>
+          <type>double</type>
+          <node>/orientation/roll-deg</node>
+      </chunk>
+      
+      <chunk>
+          <name>pitch</name>
+          <type>double</type>
+          <node>/orientation/pitch-deg</node>
+      </chunk>          
 
       <!-- ground course = atan(ve/vn), speed = sqrt((ve*ve) + (vn*vn)) -->
       <chunk>
 	<name>speed - north</name>
 	<type>double</type>
 	<node>/velocities/speed-north-fps</node>
-      </chunk> 
+      </chunk>
+      
       <chunk>
 	<name>speed - east</name>
 	<type>double</type>
 	<node>/velocities/speed-east-fps</node>
       </chunk> 
       
+      <chunk>
+          <name>speed - down</name>
+          <type>double</type>
+          <node>/velocities/speed-down-fps</node>
+      </chunk>
 
       <!-- ##### IMU ##### -->
       <chunk>

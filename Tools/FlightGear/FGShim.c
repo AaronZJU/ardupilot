@@ -57,6 +57,7 @@
 #include <stdio.h>
 #include <termios.h>
 #include <unistd.h>
+#include <errno.h>
 
 #pragma pack(1)
 #include "mavlink_types.h"
@@ -79,14 +80,20 @@ struct fgIMUData {
         double          latitude;
         double          longitude;
         double          altitude;
+        
         double          heading;
+        double          roll;
+        double          pitch;
+        
         double          velocityN;
         double          velocityE;
+        double          velocityD;
 
         // IMU
         double          accelX;
         double          accelY;
         double          accelZ;
+        
         double          rateRoll;
         double          ratePitch;
         double          rateYaw;
@@ -134,7 +141,7 @@ char *fac_names[] = {"", "CTRL: ", "IMU:  ", "QGCS: "};
 
 #define debug(_fac, _lvl, _fmt, _args...)                               \
         do {                                                            \
-                if (gDebug >= _lvl) fprintf(stderr, "%s" _fmt "\n", fac_names[FAC_##_fac], ##_args); \
+                if (gDebug >= _lvl) fprintf(stdout, "%s" _fmt "\n", fac_names[FAC_##_fac], ##_args); \
         } while(0)
 
 int             gShouldQuit;                    /* set to 1 if threads should exit */
@@ -177,12 +184,16 @@ main(int argc, char *argv[])
         struct sockaddr_in      sin = {sizeof(sin), AF_INET};
         int                     opt;
         struct termios          t;
-
+        
+        memset(&sin, 0, sizeof(struct sockaddr_in)); 
+        memset(&fgAddr, 0, sizeof(struct sockaddr_in)); 
+        memset(&qgcsAddr, 0, sizeof(struct sockaddr_in)); 
+        
         /* handle arguments */
-        while ((ch = getopt(argc, argv, "ds:")) != -1) {
+        while ((ch = getopt(argc, argv, "d:s:")) != -1) {
                 switch(ch) {
                 case 'd':
-                        gDebug++;
+                        gDebug=atoi(optarg);
                         break;
 
                 case '?':
@@ -199,11 +210,18 @@ main(int argc, char *argv[])
         /*
          * set up the flightgear socket
          */
-        fgSock = socket(AF_INET, SOCK_DGRAM, 0);
+        fgSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (fgSock < 0)
+        {
+                printf("socket return code %d\n",fgSock);
                 err(1, "IMU socket");
+        }
+        
+        sin.sin_family = AF_INET;
         sin.sin_port = htons(IMU_LISTEN_PORT);
         sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        
+        fgAddr.sin_family = AF_INET;
         fgAddr.sin_port = htons(CTRL_SEND_PORT);
         fgAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
@@ -227,12 +245,13 @@ main(int argc, char *argv[])
         /*
          * set up the qgroundcontrol socket
          */
-        qgcsSock = socket(AF_INET, SOCK_DGRAM, 0);
+        qgcsSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (qgcsSock < 0)
                 err(1, "QGroundControl socket");
+        qgcsAddr.sin_family = AF_INET;
         qgcsAddr.sin_port = htons(QGCS_SEND_PORT);
         qgcsAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
+ 
         sin.sin_port = htons(QGCS_LISTEN_PORT);
         sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
@@ -264,7 +283,9 @@ main(int argc, char *argv[])
                 err(1, "tcgetattr");
         cfmakeraw(&t);
         t.c_cflag |= CLOCAL;
-        cfsetspeed(&t, 57600);
+        cfsetspeed(&t, 115200);
+        
+        printf("opened serial port, fd = %d\n",port);
         
         if (tcsetattr(port, TCSANOW, &t))
                 err(1, "tcsetattr");
@@ -381,12 +402,19 @@ imuGetMessage(int fgSock, struct fgIMUData *msg)
         swap64(&msg->latitude);
         swap64(&msg->longitude);
         swap64(&msg->altitude);
+        
         swap64(&msg->heading);
+        swap64(&msg->roll);
+        swap64(&msg->pitch);
+        
         swap64(&msg->velocityN);
         swap64(&msg->velocityE);
+        swap64(&msg->velocityD);
+        
         swap64(&msg->accelX);
         swap64(&msg->accelY);
         swap64(&msg->accelZ);
+        
         swap64(&msg->rateRoll);
         swap64(&msg->ratePitch);
         swap64(&msg->rateYaw);
@@ -415,17 +443,64 @@ imuSendPacket(struct fgIMUData *msg)
 
 #define ft2m(_x)        ((_x) * 0.3408)                         /* feet to metres */
 #define dps2mrps(_x)    ((_x) * 17.453293)                      /* degrees per second to milliradians per second */
+        
 #define fpss2mg(_x)     ((_x) * 1000/ 32.2)                     /* feet per second per second to milligees */
 #define rad2deg(_x)     fmod((((_x) * 57.29578) + 360), 360)    /* radians to degrees */
+#define deg2rad(_x)      _x * M_PI/180     
 
-        mavlink_msg_gps_raw_send(0,
+       
+        //this should be a HIL_STATE message
+        
+        
+ /*uint64_t time_usec; ///< Timestamp (microseconds since UNIX epoch or microseconds since system boot)
+ float roll; ///< Roll angle (rad)
+ float pitch; ///< Pitch angle (rad)
+ float yaw; ///< Yaw angle (rad)
+ float rollspeed; ///< Body frame roll / phi angular speed (rad/s)
+ float pitchspeed; ///< Body frame pitch / theta angular speed (rad/s)
+ float yawspeed; ///< Body frame yaw / psi angular speed (rad/s)
+ int32_t lat; ///< Latitude, expressed as * 1E7
+ int32_t lon; ///< Longitude, expressed as * 1E7
+ int32_t alt; ///< Altitude in meters, expressed as * 1000 (millimeters)
+ int16_t vx; ///< Ground X Speed (Latitude), expressed as m/s * 100
+ int16_t vy; ///< Ground Y Speed (Longitude), expressed as m/s * 100
+ int16_t vz; ///< Ground Z Speed (Altitude), expressed as m/s * 100
+ int16_t xacc; ///< X acceleration (mg)
+ int16_t yacc; ///< Y acceleration (mg)
+ int16_t zacc; ///< Z acceleration (mg)*/
+        
+        //printf("From flight gear: roll=%lf deg pitch=%lf deg yaw=%lf deg rollrate=%lf deg/s pitchrate=%lf deg/s rawrate=%lf deg/s lat=%lf lon=%lf alt=%lf ft velN=%lf ft/s velE=%lf ft/s velD=%lf ft/s accelX=%lf fp/s^2 accelY=%lf fp/s^2 accelZ=%lf fp/s^2\n",msg->roll,msg->pitch,msg->heading,msg->rateRoll,msg->ratePitch,msg->rateYaw,msg->latitude,msg->longitude,msg->altitude,msg->velocityN,msg->velocityE,msg->velocityD,msg->accelX,msg->accelY,msg->accelZ);
+        
+        mavlink_msg_hil_state_send(0,usec,
+                                   deg2rad(msg->roll),
+                                   deg2rad(msg->pitch),
+                                   deg2rad(msg->heading),                                  
+                                   deg2rad(msg->rateRoll),
+                                   deg2rad(msg->ratePitch),
+                                   deg2rad(msg->rateYaw),
+                                   (int32_t)(msg->latitude*1.0e7),
+                                   (int32_t)(msg->longitude*1.0e7),
+                                   (int32_t)(ft2m(msg->altitude)*1000),
+                                   (int16_t)(ft2m(msg->velocityN)*100),
+                                   (int16_t)(ft2m(msg->velocityE)*100),
+                                   (int16_t)(ft2m(msg->velocityD)*100),
+                                   (int16_t)fpss2mg(msg->accelX),
+                                   (int16_t)fpss2mg(msg->accelY),
+                                   (int16_t)fpss2mg(msg->accelZ));
+                                   
+                                   
+            
+        //mavlink_msg_hil_state_send(mavlink_channel_t chan, uint64_t time_usec, float roll, float pitch, float yaw, float rollspeed, float pitchspeed, float yawspeed, int32_t lat, int32_t lon, int32_t alt, int16_t vx, int16_t vy, int16_t vz, int16_t xacc, int16_t yacc, int16_t zacc)
+        
+        
+        /*mavlink_msg_gps_raw_send(0,
                                  usec,
-                                 3,                     /* 3D fix */
+                                 3,                     // 3D fix 
                                  msg->latitude,
                                  msg->longitude,
                                  ft2m(msg->altitude),
-                                 0,                     /* no uncertainty */
-                                 0,                     /* no uncertainty */
+                                 0,                     // no uncertainty 
+                                 0,                     // no uncertainty 
                                  ft2m(sqrt((msg->velocityN * msg->velocityN) +
                                            (msg->velocityE * msg->velocityE))),
                                  rad2deg(atan2(msg->velocityE, msg->velocityN)));
@@ -438,9 +513,9 @@ imuSendPacket(struct fgIMUData *msg)
                                  dps2mrps(msg->rateRoll),
                                  dps2mrps(msg->ratePitch),
                                  dps2mrps(msg->rateYaw),
-                                 0,     /* xmag */
-                                 0,     /* ymag */
-                                 0);    /* zmag */
+                                 0,     // xmag 
+                                 0,     // ymag 
+                                 0);    // zmag */
 
         pthread_mutex_unlock(&portMutex);
 
@@ -527,6 +602,7 @@ ctrlHandleMessage(mavlink_message_t *msg)
         static time_t                   lastRCMessage;
         uint8_t                         buf[1024];
         int                             len;
+        size_t                          sent_size;
 
         time(&now);
 
@@ -560,17 +636,22 @@ ctrlHandleMessage(mavlink_message_t *msg)
                 /* XXX ArduPilotMega channel ordering */
                 cdata.aileron  = (double)mavlink_msg_rc_channels_scaled_get_chan1_scaled(msg) / 10000;
                 cdata.elevator = (double)mavlink_msg_rc_channels_scaled_get_chan2_scaled(msg) / 10000;
-                cdata.throttle = (double)mavlink_msg_rc_channels_scaled_get_chan3_scaled(msg) / 10000;
-                cdata.rudder   = (double)mavlink_msg_rc_channels_scaled_get_chan4_scaled(msg) / 10000;
+                cdata.throttle = 0.5 + ((double)mavlink_msg_rc_channels_scaled_get_chan3_scaled(msg) / 20000); //flight gear wants the throttle value between 0 and 1, ardupilot is reporting between -10000 and +10000
+                cdata.aileron = cdata.aileron;
+                cdata.elevator = cdata.elevator * -1;
+                
+                //cdata.rudder   = (double)mavlink_msg_rc_channels_scaled_get_chan4_scaled(msg) / 10000;
+                cdata.rudder = 0;
 
                 debug(CTRL, 2, "%+6.4f %+6.4f %+6.4f %+6.4f", cdata.aileron, cdata.elevator, cdata.throttle, cdata.rudder);
 
-                /* swap and send it to FG */
+                printf("ail: %+6.4lf ele: %+6.4lf thr: %+6.4lf rud: %+6.4lf\n", cdata.aileron, cdata.elevator, cdata.throttle, cdata.rudder);                /* swap and send it to FG */
                 swap64(&cdata.aileron);
                 swap64(&cdata.elevator);
                 swap64(&cdata.throttle);
                 swap64(&cdata.rudder);
                 sendto(fgSock, &cdata, sizeof(cdata), 0, (struct sockaddr *)&fgAddr, sizeof(fgAddr));
+    
 
                 /* update our timestamp so that we don't re-request the stream */
                 lastRCMessage = now;
@@ -578,7 +659,9 @@ ctrlHandleMessage(mavlink_message_t *msg)
 
         /* pass the message on to QGCS */
         len = mavlink_msg_to_send_buffer(buf, msg);
-        sendto(qgcsSock, buf, len, 0, (struct sockaddr *)&qgcsAddr, sizeof(qgcsAddr));
+
+        sent_size = sendto(qgcsSock, buf, len, 0, (struct sockaddr *)&qgcsAddr, sizeof(qgcsAddr));
+
 }
 
 
@@ -636,8 +719,10 @@ qgsThread(void *arg)
 
 void comm_send_ch(mavlink_channel_t chan, uint8_t ch)
 {
+       
         if (write(port, &ch, 1) != 1)
                 warn("serial packet write failed");
+        usleep(50);
 }
 
 void
